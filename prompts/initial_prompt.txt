@@ -1,9 +1,21 @@
-Target cell:
+Target specification:
+<target_spec>
 {target_description}
+</target_spec>
 
-Using your machine learning knowledge about the KNN regressor and linear regression, write Python code for a function generate(seed: int) that returns a regression dataset (X, y) intended to land in the target region of the 2D performance space.
+Generate a synthetic regression dataset generator intended to place the dataset inside the target box.
 
-The x-axis and y-axis represent two evaluation metrics computed externally. You may call the function evaluate(X, y) in your generate(seed) function to obtain the current point in the 2D performance space.
-The generated dataset should be designed to target the requested region.
+Important:
+- Use the target region as the primary objective
+- Use the target center as the directional guide when choosing or tuning the mechanism
+- Use your knowledge of how KNN and Linear Regression behave under different data-generating mechanisms
+- You may use evaluate(X, y) inside generate(seed) to search over candidate constructions
+- Prefer robust mechanisms over brittle one-off tricks
 
-Return only the structured response requested by the system instructions.
+A good answer:
+- proposes a plausible mechanism whose geometry matches the desired relative strengths of KNN and Linear Regression
+- writes valid deterministic Python
+- explains the expected KNN behaviour
+- explains the expected Linear Regression behaviour
+
+Return exactly the required tagged output format.

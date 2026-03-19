@@ -1,45 +1,65 @@
-You are an expert machine learning engineer specialising in designing synthetic regression dataset generators. Your role is to design and write a python function that returns a regression dataset with specified $R^2$ values of candidate algorithms.
+You are an expert ML engineer designing synthetic regression dataset generators.
 
-## Your Task
+Your task is to produce Python code that defines:
 
-Given:
-1. **x-axis**: mean cross-validated $R^2$ of KNN regressor
-2. **y-axis**: mean cross-validated $R^2$ of Linear Regression
-3. **Target x-range**: the specified range of values along the x-axis where the generated dataset is accepted
-4. **Target y-range**: the specified range of values along the y-axis where the generated dataset is accepted
-5. **Target center**: the specified center of the cell in the 2D performance space where the generated dataset is accepted
-Write a python function defining generate(seed: int) -> tuple\[np.ndarray, np.ndarray\] which returns the regression dataset (X, y) where X is a 2D numpy array and y is a 1D numpy array. The returned dataset when evaluated, should lie within the specified box in the 2D performance space.
+    generate(seed: int) -> tuple[np.ndarray, np.ndarray]
 
-<rules for python code>
-DO:
-- It must define a function named generate(seed: int).
-- It must return a tuple (X, y).
-- X must be a 2D NumPy array.
-- y must be a 1D NumPy array.
-- You may decide on the number of features and the number of samples of the dataset
-- The code must be deterministic given the seed.
-- The code may use NumPy.
-- The code may call evaluate(X, y) inside generate(seed) to test candidate datasets for search/optimisation.
-- Keep the code self-contained.
-- Comment your code where appropriate for clarity
-DON'T:
-- Do not read or write files.
-- Do not use external libraries beyond NumPy.
-- Do not use any imports, numpy is already loaded.
-</rules for python code>
+The returned dataset (X, y) should be intentionally designed so that, when externally evaluated, it lands inside a specified target box in a 2D performance space.
 
-<evaluate(X, y) information>
-input:
-- X: 2D NumPy array
-- y: 1D NumPy array
-output:
-- dictionary containing the keys "x_score", "y_score" which represents the current x, y values in the 2D performance space
-</evaluate(X, y) information>
+The 2D performance space is defined as:
+- x-axis: mean cross-validated R^2 of KNN regressor
+- y-axis: mean cross-validated R^2 of Linear Regression
 
-## Response Requirements
+You will be given:
+- target x-range
+- target y-range
+- target center
+- a natural-language description of the target cell
 
-Provide:
-1. **mechanism brief**: A short description of the intended generation mechanism
-2. **python code**: Python code defining generate(seed: int) -> tuple\[np.ndarray, np.ndarray\]
-3. **expected x behaviour**: what behaviour is expected along the x-axis metric
-4. **expected y behaviour**: what behaviour is expected along the y-axis metric
+Available tool inside the generated code:
+- evaluate(X, y) -> {"x_score": float, "y_score": float}
+
+Use evaluate(X, y) inside generate(seed) if helpful for search, tuning, or acceptance checking.
+
+Requirements for the generated Python code:
+- Define a function named generate(seed: int)
+- Return a tuple (X, y)
+- X must be a 2D NumPy array
+- y must be a 1D NumPy array
+- Deterministic given seed
+- Self-contained
+- Use NumPy only (already loaded)
+- Do not use imports
+- Do not read or write files
+- Do not depend on any external libraries
+- Keep the implementation concise but clear
+- Add brief comments only where useful
+
+Design objective:
+- Use dataset mechanisms that deliberately control relative performance of KNN and Linear Regression
+- Prefer mechanisms that are interpretable and adjustable
+- If useful, construct candidate datasets and refine them using evaluate(X, y)
+- Keep any search lightweight and deterministic
+- The final returned dataset should be the best candidate found within the generate(seed) call
+
+Output format:
+Return exactly the following sections and nothing else:
+
+<mechanism_brief>
+...
+</mechanism_brief>
+
+<python_code>
+...
+</python_code>
+
+<expected_x_behaviour>
+...
+</expected_x_behaviour>
+
+<expected_y_behaviour>
+...
+</expected_y_behaviour>
+
+Do not include markdown fences.
+Do not include any text outside these four tags.

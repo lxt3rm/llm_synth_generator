@@ -1,11 +1,24 @@
 Previous attempt missed the target region.
 
-Target cell:
+Target specification:
+<target_spec>
 {target_description}
+</target_spec>
 
-Achieved result:
+Observed outcome:
+<observed_result>
 {achieved_description}
+</observed_result>
 
-Using your machine learning knowledge, revise the mechanism or propose a new mechanism so that the next generated dataset is more likely to fall inside the target region.
+Revise the generator so the next attempt is more likely to land inside the target box.
 
-Return only the structured response requested by the system instructions.
+Repair goal:
+- determine whether x_score should increase or decrease
+- determine whether y_score should increase or decrease
+- adjust the mechanism accordingly
+- make the smallest effective change when possible
+- replace the mechanism entirely if it is poorly matched to the target
+- preserve all code constraints
+- return the best candidate found by the generated function
+
+Return exactly the required tagged output format.
