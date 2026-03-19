@@ -1,0 +1,4 @@
+model:
+  name: "gpt-5.4"
+  temperature: 1.0
+  max_output_tokens: 4000

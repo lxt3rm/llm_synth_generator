@@ -1,0 +1,9 @@
+Target cell:
+{target_description}
+
+Using your machine learning knowledge about the KNN regressor and linear regression, write Python code for a function generate(seed: int) that returns a regression dataset (X, y) intended to land in the target region of the 2D performance space.
+
+The x-axis and y-axis represent two evaluation metrics computed externally. You may call the function evaluate(X, y) in your generate(seed) function to obtain the current point in the 2D performance space.
+The generated dataset should be designed to target the requested region.
+
+Return only the structured response requested by the system instructions.

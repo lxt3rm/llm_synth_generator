@@ -1,0 +1,11 @@
+Previous attempt missed the target region.
+
+Target cell:
+{target_description}
+
+Achieved result:
+{achieved_description}
+
+Using your machine learning knowledge, revise the mechanism or propose a new mechanism so that the next generated dataset is more likely to fall inside the target region.
+
+Return only the structured response requested by the system instructions.
