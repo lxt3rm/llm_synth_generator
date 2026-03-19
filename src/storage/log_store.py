@@ -11,15 +11,10 @@ from typing import Any
 
 
 def _to_loggable(obj: Any) -> Any:
-    """
-    Convert log objects into JSON-serializable forms.
-    """
     if is_dataclass(obj):
         return asdict(obj)
-
     if isinstance(obj, Path):
         return str(obj)
-
     return obj
 
 
@@ -31,12 +26,11 @@ class JsonlLogStore:
     """
 
     def append(self, record: Any, path: str | Path) -> None:
-        """
-        Append one record to a JSONL file.
-        """
         log_path = Path(path)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
+        serializable = _to_loggable(record)
+
         with log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, default=_to_loggable, indent=2))
+            f.write(json.dumps(serializable))
             f.write("\n")

@@ -17,9 +17,5 @@ execution:
 
 
 cell_selection:
-  mode: "include_ids"
-  cell_ids:
-    - "cell_00_00"
-    - "cell_00_01"
-    - "cell_00_02"
+  mode: "all"
 
