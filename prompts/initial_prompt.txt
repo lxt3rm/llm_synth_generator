@@ -15,7 +15,13 @@ Important:
 A good answer:
 - proposes a plausible mechanism whose geometry matches the desired relative strengths of KNN and Linear Regression
 - writes valid deterministic Python
-- explains the expected KNN behaviour
-- explains the expected Linear Regression behaviour
+- explains the expected x-axis behavior in "expected_x_behavior"
+- explains the expected y-axis behavior in "expected_y_behavior"
 
-Return exactly the required tagged output format.
+Return exactly one valid JSON object matching the required schema, using the keys:
+- "mechanism_brief"
+- "python_code"
+- "expected_x_behavior"
+- "expected_y_behavior"
+
+Return only JSON and no surrounding text.

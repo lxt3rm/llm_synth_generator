@@ -43,23 +43,21 @@ Design objective:
 - The final returned dataset should be the best candidate found within the generate(seed) call
 
 Output format:
-Return exactly the following sections and nothing else:
+Return exactly one valid JSON object and nothing else.
 
-<mechanism_brief>
-...
-</mechanism_brief>
+The JSON object must match this structure exactly:
+- "mechanism_brief": string
+- "python_code": string
+- "expected_x_behavior": string
+- "expected_y_behavior": string
 
-<python_code>
-...
-</python_code>
+Field requirements:
+- "mechanism_brief": short explanation of the intended generation mechanism
+- "python_code": Python code defining generate(seed: int) -> tuple[np.ndarray, np.ndarray]
+- "expected_x_behavior": what behavior is expected along the x-axis metric
+- "expected_y_behavior": what behavior is expected along the y-axis metric
 
-<expected_x_behaviour>
-...
-</expected_x_behaviour>
-
-<expected_y_behaviour>
-...
-</expected_y_behaviour>
-
+Do not use XML-like tags.
 Do not include markdown fences.
-Do not include any text outside these four tags.
+Do not include commentary before or after the JSON object.
+Do not include additional keys.

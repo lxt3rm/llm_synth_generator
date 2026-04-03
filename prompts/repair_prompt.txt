@@ -21,4 +21,10 @@ Repair goal:
 - preserve all code constraints
 - return the best candidate found by the generated function
 
-Return exactly the required tagged output format.
+Return exactly one valid JSON object matching the required schema, using the keys:
+- "mechanism_brief"
+- "python_code"
+- "expected_x_behavior"
+- "expected_y_behavior"
+
+Return only JSON and no surrounding text.
