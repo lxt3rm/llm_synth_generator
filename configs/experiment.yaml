@@ -1,4 +1,4 @@
-run_name: "pilot_5x5_v1"
+run_name: "pilot_7x7_v1"
 
 paths:
   accepted_dir: "data/accepted"

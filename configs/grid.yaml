@@ -6,4 +6,4 @@ y:
   min: 0.0
   max: 1.0
 
-bins_per_axis: 5
+bins_per_axis: 7
