@@ -170,6 +170,9 @@ def _validate_experiment_config(
     if generation.max_total_attempts_per_cell <= 0:
         raise ValueError("max_total_attempts_per_cell must be > 0")
 
+    if generation.dataset_seed_start < 0:
+        raise ValueError("dataset_seed_start must be >= 0")
+
     if execution.timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be > 0")
 

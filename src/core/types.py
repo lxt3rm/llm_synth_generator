@@ -20,7 +20,12 @@ class PathsConfig:
 
 @dataclass
 class GenerationConfig:
-    """Settings controlling dataset generation and retry behaviour."""
+    """
+    Settings controlling dataset generation and retry behaviour.
+
+    dataset_seed_start is the base seed used to derive deterministic
+    per-cell/per-target execution seeds.
+    """
     accepted_per_cell: int
     max_retries_per_dataset: int
     max_total_attempts_per_cell: int
@@ -152,6 +157,7 @@ class AttemptRecord:
     cell_id: str
     target_dataset_index: int
     attempt_index: int
+    execution_seed: int
     accepted: bool
     exhausted: bool
     response_id: str | None

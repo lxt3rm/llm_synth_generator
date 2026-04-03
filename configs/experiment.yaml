@@ -10,6 +10,7 @@ generation:
   accepted_per_cell: 10
   max_retries_per_dataset: 7
   max_total_attempts_per_cell: 84
+  # Base seed for deterministic per-cell, per-target execution seed derivation.
   dataset_seed_start: 11
 
 execution:
@@ -18,4 +19,3 @@ execution:
 
 cell_selection:
   mode: "all"
-

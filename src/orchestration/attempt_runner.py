@@ -13,6 +13,8 @@ Flow:
 
 from __future__ import annotations
 
+MAX_EXECUTION_SEED = 2**32 - 1
+
 from src.core.ids import (
     make_attempt_id,
     make_csv_filename,
@@ -41,6 +43,13 @@ from src.storage.path_manager import PathManager
 class AttemptRunner:
     """
     Run a single attempt for one target cell and one target dataset slot.
+
+    Seed policy:
+    - execution seeds are derived deterministically from dataset_seed_start,
+      cell coordinates, and target_dataset_index
+    - retries for the same target dataset slot reuse the same execution seed
+      so repair attempts isolate prompt/code changes rather than adding seed
+      variation
     """
 
     def __init__(
@@ -62,6 +71,47 @@ class AttemptRunner:
         self.code_runner = code_runner
         self.evaluator = evaluator
         self.log_store = log_store
+
+    def _derive_execution_seed(
+        self,
+        *,
+        cell: Cell,
+        target_dataset_index: int,
+    ) -> int:
+        """
+        Derive a stable execution seed for one cell and target dataset slot.
+
+        The derivation intentionally does not depend on attempt_index.
+        All retries for the same (cell, target_dataset_index) pair reuse the
+        same seed so the repair loop evaluates code/prompt changes under a
+        fixed stochastic realization.
+
+        Formula:
+        - cell_index = cantor_pair(row, col)
+        - dataset_slot_index = target_dataset_index - 1
+        - pair_index = cantor_pair(cell_index, dataset_slot_index)
+        - execution_seed = dataset_seed_start + pair_index
+        """
+        if target_dataset_index <= 0:
+            raise ValueError("target_dataset_index must be > 0")
+
+        def cantor_pair(a: int, b: int) -> int:
+            if a < 0 or b < 0:
+                raise ValueError("cantor_pair inputs must be >= 0")
+            return (a + b) * (a + b + 1) // 2 + b
+
+        cell_index = cantor_pair(cell.row, cell.col)
+        dataset_slot_index = target_dataset_index - 1
+        pair_index = cantor_pair(cell_index, dataset_slot_index)
+
+        execution_seed = self.experiment_config.generation.dataset_seed_start + pair_index
+        if execution_seed > MAX_EXECUTION_SEED:
+            raise ValueError(
+                "Derived execution seed exceeded the maximum supported 32-bit "
+                f"seed value: {execution_seed}"
+            )
+
+        return execution_seed
 
     def run_initial_attempt(
         self,
@@ -156,10 +206,14 @@ class AttemptRunner:
             attempt_index=attempt_index,
         )
         dataset_id = make_dataset_id(cell.cell_id, accepted_index=target_dataset_index)
+        execution_seed = self._derive_execution_seed(
+            cell=cell,
+            target_dataset_index=target_dataset_index,
+        )
 
         execution_result = self.code_runner.run(
             python_code=llm_response.python_code,
-            seed=self.experiment_config.generation.dataset_seed_start,
+            seed=execution_seed,
         )
 
         evaluation_result = None
@@ -203,6 +257,7 @@ class AttemptRunner:
                 "attempt_index": attempt_index,
                 "attempt_id": attempt_id,
                 "dataset_id": dataset_id,
+                "execution_seed": execution_seed,
                 "accepted": accepted,
                 "response_id": llm_response.response_id,
                 "mechanism_brief": llm_response.mechanism_brief,
@@ -235,6 +290,7 @@ class AttemptRunner:
                 cell_id=cell.cell_id,
                 target_dataset_index=target_dataset_index,
                 attempt_index=attempt_index,
+                execution_seed=execution_seed,
                 accepted=accepted,
                 exhausted=False,
                 response_id=llm_response.response_id,

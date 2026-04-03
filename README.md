@@ -51,7 +51,7 @@ The experiment loop is implemented in code rather than notebooks. The intended f
 
 ```text
 configs/
-  experiment.yaml        Main run settings: output paths, retry budgets, seed, cell selection
+  experiment.yaml        Main run settings: output paths, retry budgets, base seed, cell selection
   grid.yaml              Performance-space bounds and number of bins per axis
   model.yaml             OpenAI model name and token budget
 
@@ -164,7 +164,7 @@ Meaning of the main fields:
 - `accepted_per_cell`: how many accepted datasets to collect per selected cell
 - `max_retries_per_dataset`: maximum attempts for one target dataset slot before moving on
 - `max_total_attempts_per_cell`: total attempt budget for an entire cell
-- `dataset_seed_start`: seed passed into generated `generate(seed)` code
+- `dataset_seed_start`: base seed used to derive per-cell, per-target execution seeds
 - `timeout_seconds`: wall-clock timeout for one generated-code execution
 - `cell_selection.mode`: which cells to run
 
@@ -389,6 +389,7 @@ Attempt records include:
 - `cell_id`
 - `target_dataset_index`
 - `attempt_index`
+- `execution_seed`
 - acceptance status
 - `x_score`, `y_score`
 - execution error type/message, if any
@@ -425,14 +426,15 @@ What is deterministic in the current code:
 - Grid construction
 - Cell selection
 - The evaluation splitter seed (`11`)
-- The seed passed to generated code (`dataset_seed_start`, currently `11`)
+- Per-attempt execution seeds derived from `dataset_seed_start`
 - Execution timeout and acceptance rules
 
 Important caveats:
 
 - The LLM call itself is not guaranteed to be reproducible across time, even with the same prompts.
 - The configured `temperature` is not currently passed into the OpenAI API call.
-- `dataset_seed_start` is used as the actual seed for every attempt; the current code does not increment the seed across dataset slots or retries.
+- Execution seeds are derived deterministically from the target cell and target dataset slot.
+- Retries for the same target dataset slot intentionally reuse the same execution seed so repair attempts isolate prompt/code changes rather than seed variation.
 - Results may change with OpenAI model updates, SDK changes, scikit-learn changes, or prompt edits.
 - `run_id` is timestamp-based, so output paths differ from run to run.
 
@@ -482,7 +484,6 @@ The current repository is functional but still clearly experimental.
 If you plan to continue this line of work, the most obvious improvements suggested by the current codebase are:
 
 - Add a proper CLI for overriding config values without editing YAML manually
-- Make seed handling explicit per dataset slot / retry
 - Resolve the prompt-format mismatch so prompts, schema, and parser all describe the same contract
 - Log accepted-only and failure-only streams if `accepted.jsonl` / `failures.jsonl` are desired
 - Add plotting or notebook utilities for visualizing coverage across the grid
