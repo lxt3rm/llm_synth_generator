@@ -1,513 +1,134 @@
-# LLM Synthetic Dataset Generator
+# LLM-Driven Performance-Space Augmentation for Meta-learning-Based Algorithm Selection
 
-This repository runs an experiment in which an LLM proposes Python dataset generators for synthetic regression problems, executes the generated code, evaluates each dataset under a fixed model-comparison harness, and keeps only the generations that land in a target region of a 2D performance space. In the current codebase, the two axes are mean cross-validated `R^2` for a KNN regressor and a linear regressor, and the experiment searches for datasets that populate cells of a rectangular grid over that space.
+Official code release for the **LLM Synthetic Dataset Generator** described in Zhu & Ler, *LLM-Driven Performance-Space Augmentation for Meta-learning-Based Algorithm Selection* (preprint).
 
-## Quickstart
+[![Paper](https://img.shields.io/badge/Paper-arXiv-b31b1b)](#)
+<!-- TODO: replace the link target above with the arXiv URL once posted. -->
+[![Python](https://img.shields.io/badge/python-%E2%89%A53.11-3776AB)](https://www.python.org/)
+<!-- TODO: pin once a pyproject.toml is added; floor inferred from the requirements.txt pins (numpy 2.4.x requires Python >= 3.11). -->
+[![OpenAI SDK](https://img.shields.io/badge/openai-2.28.0-412991)](https://github.com/openai/openai-python)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.8.0-F7931E)](https://scikit-learn.org/)
+
+<!-- TODO: add a pipeline diagram here showing propose -> execute -> evaluate -> repair around the 2-D performance grid. -->
+
+## TL;DR
+
+Meta-learning for algorithm selection is bottlenecked by the small number of curated regression datasets, which leaves the meta-dataset sparse and the meta-learner under-generalising. This repository implements the **propose–execute–evaluate–repair** loop that produces synthetic regression datasets steered toward target cells of a two-dimensional **performance space** `φ(D) = (R²_KNN, R²_LR) ∈ [0,1]²`. An LLM is asked to return an executable Python procedure `generate(seed) -> (X, y)`; the procedure runs in a sandboxed subprocess with a restricted set of builtins and `numpy`-only imports; the resulting dataset is scored under a fixed harness; and a repair prompt continues the same conversational thread until the dataset lands inside the target cell or the per-cell attempt budget is exhausted. The synthetic pool produced here is the input to the downstream meta-learning evaluation reported in the paper. **That evaluation pipeline (regression and multi-label meta-learners, uniform vs. margin-based augmentation, learning curves, Monte Carlo, paired t-tests) is not part of this repository.**
+
+## Installation
+
+Requires Python >= 3.11.
 
 ```bash
-python3 -m venv .venv
+cd llm_synth_generator
+python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-export OPENAI_API_KEY=YOUR_KEY_HERE
+export OPENAI_API_KEY=sk-...   # required; the client errors out if unset
+```
+
+## Quick start
+
+The only entry point is `src.main`, which loads its three YAML configs by relative path. Run it from inside `llm_synth_generator/`:
+
+```bash
+cd llm_synth_generator
+export OPENAI_API_KEY=sk-...
+
+# Optional: trim the run to one or two cells before the first end-to-end test.
+# Edit configs/experiment.yaml and replace cell_selection with:
+#   cell_selection:
+#     mode: "include_ids"
+#     cell_ids: ["cell_03_03"]
+
 python -m src.main
 ```
 
-Outputs are written under `data/` and `logs/`.
+There is no separate "small sample" script; the budget is controlled by `cell_selection`, `generation.accepted_per_cell`, and `generation.max_total_attempts_per_cell` in `configs/experiment.yaml`.
 
-## Research Goal
+Outputs:
 
-The repository is set up to test whether an LLM can iteratively generate synthetic regression datasets whose downstream behavior matches a requested target cell in a discretized performance grid.
+| Path | Contents |
+| --- | --- |
+| `data/accepted/<cell_id>/<dataset_id>/` | Accepted dataset CSV, generator code (`*.py`), and metadata JSON. |
+| `data/rejected/<cell_id>/<attempt_id>/` | Rejected attempts (CSV + code + metadata). |
+| `logs/attempts.jsonl` | One JSON line per attempt (initial and repair). |
+| `logs/run_summary.json` | Per-cell and overall accepted / attempted counts and hit rate. |
+| `logs/attempt_analysis.json` | Post-run aggregates: mean attempts per accepted dataset, runtime, token totals. |
 
-Concretely, the current experiment:
+## Repository structure
 
-- Defines a 2D space where:
-  - `x_score` = mean cross-validated `R^2` of a KNN regressor
-  - `y_score` = mean cross-validated `R^2` of a linear regressor
-- Partitions that space into a `5 x 5` grid by default
-- Asks the LLM to write `generate(seed) -> (X, y)` code that should place the dataset inside a requested cell
-- Retries with a repair prompt when an attempt misses the target
-- Saves accepted and rejected generations for later inspection
-- Produces run-level and attempt-level summaries
+| Path | Purpose | Paper anchor |
+| --- | --- | --- |
+| `src/main.py` | Entry point; wires configs, builds the grid, runs all selected cells, summarises. | Section 3.2 (orchestration) |
+| `src/orchestration/` | `attempt_runner.py`, `cell_runner.py`, `experiment_runner.py` — the propose–execute–evaluate–repair retry loop, with deterministic per-cell / per-target execution seeds. | Section 3.2 ("The Repair Loop") |
+| `src/llm/` | `openai_client.py` (OpenAI Responses API with `previous_response_id` for repair-thread continuity), `prompt_builder.py`, `response_parser.py`, `schemas.py` (strict JSON schema for the response). | Section 3.2 (prompting) |
+| `src/execution/` | `code_runner.py` runs the LLM-emitted code in a `spawn` subprocess with a restricted `__import__` (only `numpy` / `numpy.linalg`), a curated builtins set, no file I/O, and a wall-clock timeout. `validator.py` enforces the `(X, y)` shape contract. | Section 3.2 ("Execution and Validation") |
+| `src/evaluation/` | `harness.py` defines the fixed acceptance harness (KNN and LinearRegression pipelines, both with `MinMaxScaler`, scored by mean R² over a deterministic 5-fold totally-stratified CV). `tscv.py` implements the totally-stratified splitter. `metrics.py` performs the cell-membership acceptance test. `evaluator.py` exposes `evaluate(X, y)` to generated code. | Section 3.2 ("The Repair Loop"); Section 3.3 (TSCV reference) |
+| `src/core/` | `grid.py` builds the rectangular grid; `cell_selection.py` filters it; `config.py` loads and validates the YAML; `types.py` defines the dataclasses; `ids.py` derives stable cell / dataset / attempt IDs; `constants.py` holds shared constants. | Section 3.2 (grid discretisation) |
+| `src/storage/` | `csv_store.py`, `json_store.py`, `log_store.py` (JSONL), `path_manager.py`. | Section 3.2 (artefact persistence) |
+| `src/analysis/` | `load_logs.py`, `summarise_attempts.py` — post-run aggregation of `attempts.jsonl`. | Code-only; not described in the paper. |
+| `prompts/` | `system_prompt.txt`, `initial_prompt.txt`, `repair_prompt.txt` — verbatim prompt templates. | Appendix A.2 ("LLM Prompts") |
+| `configs/` | `grid.yaml` (axis ranges, `bins_per_axis`), `experiment.yaml` (run name, paths, generation budget, seed, cell selection, execution timeout), `model.yaml` (model name, temperature, max output tokens). | Section 3.2 (`w = 10`, `b = 84`); Section 4 (5x5 / 7x7 grids) |
 
-## Core Idea
+## Reproducing paper results
 
-The experiment loop is implemented in code rather than notebooks. The intended flow is:
+This repository reproduces only the **synthetic dataset pool generation** stage of the paper. The 5x5 grid (≈248 datasets) and 7x7 grid (≈482 datasets) that combine into the 730-dataset pool used in the paper's evaluation are regenerated here. The downstream meta-learning evaluation that produces the ablation table, the learning curves, the Monte Carlo selection-frequency analysis, and the H1 / H2 paired t-tests lives in a separate codebase that will be released alongside the paper.
 
-1. Pick a target cell in the `(x_score, y_score)` grid.
-2. Build an initial prompt describing the target region.
-3. Ask the OpenAI Responses API for structured output containing:
-   - a short mechanism description
-   - Python code for `generate(seed: int)`
-   - expected behavior along both evaluation axes
-4. Execute the returned code in a restricted subprocess sandbox.
-5. Validate that the generator returned numeric `X` and `y` with the expected shapes.
-6. Evaluate the dataset using the fixed harness in `src/evaluation/`.
-7. Accept the attempt if the measured `(x_score, y_score)` falls inside the requested cell.
-8. Otherwise, send a repair prompt that includes the achieved scores and try again until either:
-   - the required number of accepted datasets is collected for that cell, or
-   - the retry / attempt budget is exhausted.
+<!-- TODO: replace with the URL to the companion evaluation repository once published. -->
+**Companion evaluation repository:** TBD.
 
-## Repository Structure
-
-```text
-configs/
-  experiment.yaml        Main run settings: output paths, retry budgets, base seed, cell selection
-  grid.yaml              Performance-space bounds and number of bins per axis
-  model.yaml             OpenAI model name and token budget
-
-prompts/
-  system_prompt.txt      Base instructions for the generator model
-  initial_prompt.txt     Prompt template for the first attempt in a cell
-  repair_prompt.txt      Prompt template for retries after a miss
-
-src/
-  main.py                Entry point for the end-to-end experiment
-  core/                  Typed configs, IDs, grid construction, cell selection
-  llm/                   OpenAI client, response parsing, output schema, prompt builder
-  execution/             Generated-code execution sandbox and dataset validation
-  evaluation/            Fixed scoring harness and acceptance logic
-  orchestration/         Attempt-, cell-, and experiment-level retry loops
-  storage/               CSV, JSON, JSONL, and output-path helpers
-  analysis/              Attempt-log summarization utilities
-
-data/
-  accepted/              Accepted datasets and their metadata/code artifacts
-  rejected/              Rejected attempts and their artifacts
-  summaries/             Created by config/path setup; currently unused by `src.main`
-
-logs/
-  attempts.jsonl         One JSON object per generation attempt
-  run_summary.json       Per-run aggregate summary across selected cells
-  attempt_analysis.json  Post-run summary derived from `attempts.jsonl`
-
-notebooks/
-  (currently empty)
-```
-
-## Python Version
-
-The repository does not pin an interpreter version in `pyproject.toml`, `setup.py`, or a `.python-version` file. Based on the source code, Python `3.10+` is required because the code uses modern union syntax such as `str | None`.
-
-If you want the safest choice, use a recent Python 3.10 or 3.11 environment.
-
-## Virtual Environment
+### 5x5 grid (~248 datasets)
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+# 1. In configs/grid.yaml, set:
+#      bins_per_axis: 5
+# 2. In configs/experiment.yaml, set:
+#      run_name: "grid_5x5"
+#      cell_selection:
+#        mode: "all"
+python -m src.main
 ```
 
-## Install Dependencies
+Acceptance budget per cell: `accepted_per_cell: 10` and `max_total_attempts_per_cell: 84` (matching the paper's `w = 10`, `b = 84`).
+
+### 7x7 grid (~482 datasets)
 
 ```bash
-pip install --upgrade pip
-pip install -r requirements.txt
+# 1. In configs/grid.yaml, set:
+#      bins_per_axis: 7      # this is the shipped default
+# 2. In configs/experiment.yaml, set:
+#      run_name: "grid_7x7"
+#      cell_selection:
+#        mode: "all"
+python -m src.main
 ```
 
-Main dependencies from `requirements.txt` include:
+### Combined pool
 
-- `openai`
-- `numpy`
-- `pandas`
-- `scikit-learn`
-- `PyYAML`
-
-## Environment Variables and External Services
-
-This project requires access to the OpenAI API.
-
-Set:
-
-```bash
-export OPENAI_API_KEY=YOUR_KEY_HERE
-```
-
-Important notes:
-
-- `OPENAI_API_KEY` is mandatory. `src/llm/openai_client.py` raises an error if it is missing.
-- An empty `.env` file exists in the repository root, but the code does not load `.env` automatically. You must export the variable in your shell or load it through your own environment-management tooling.
-- The current code uses the OpenAI Responses API via the `openai` Python SDK.
+Concatenating the contents of `data/accepted/` from both runs reproduces the 730-dataset pool used in the paper. The exact counts (248 / 482) are run-dependent: cells in unreachable regions of the performance space (e.g. `R²_KNN = 1` simultaneously with `R²_LR <= 0`) may exhaust their per-cell attempt budget before collecting all `w = 10` witnesses.
 
 ## Configuration
 
-The main run is controlled through three YAML files.
+| File | Key | Default | Effect |
+| --- | --- | --- | --- |
+| `configs/grid.yaml` | `bins_per_axis` | `7` | Number of bins on each axis of the 2-D performance grid. |
+| `configs/grid.yaml` | `x.min`, `x.max` | `0.0`, `1.0` | Range of the x-axis (KNN R²). |
+| `configs/grid.yaml` | `y.min`, `y.max` | `0.0`, `1.0` | Range of the y-axis (Linear Regression R²). |
+| `configs/experiment.yaml` | `run_name` | `"pilot_7x7_v1"` | Used in the run ID and printed in the summary. |
+| `configs/experiment.yaml` | `paths.accepted_dir` | `data/accepted` | Where accepted datasets and their generators are written. |
+| `configs/experiment.yaml` | `paths.rejected_dir` | `data/rejected` | Where rejected attempts are written. |
+| `configs/experiment.yaml` | `paths.summaries_dir` | `data/summaries` | Created at startup; reserved for downstream summaries. |
+| `configs/experiment.yaml` | `paths.logs_dir` | `logs` | Where `attempts.jsonl`, `run_summary.json`, and `attempt_analysis.json` land. |
+| `configs/experiment.yaml` | `generation.accepted_per_cell` | `10` | Target witnesses per cell (paper's `w`). |
+| `configs/experiment.yaml` | `generation.max_total_attempts_per_cell` | `84` | Hard attempt budget per cell (paper's `b`). |
+| `configs/experiment.yaml` | `generation.max_retries_per_dataset` | `7` | Maximum repair attempts for one target dataset slot. |
+| `configs/experiment.yaml` | `generation.dataset_seed_start` | `11` | Base seed for deterministic execution-seed derivation; retries for one slot reuse the same seed. |
+| `configs/experiment.yaml` | `execution.timeout_seconds` | `300` | Wall-clock cap for one `generate(seed)` call. |
+| `configs/experiment.yaml` | `cell_selection.mode` | `"all"` | One of `all`, `include_ids`, or `row_col_ranges`. |
+| `configs/experiment.yaml` | `cell_selection.cell_ids` | (unset) | Required when `mode == "include_ids"`. Cell IDs follow the format `cell_<row:02d>_<col:02d>`. |
+| `configs/experiment.yaml` | `cell_selection.row_indices`, `cell_selection.col_indices` | (unset) | Required when `mode == "row_col_ranges"`. |
+| `configs/model.yaml` | `model.name` | `"gpt-5.4"` | OpenAI model used by the Responses API. <!-- TODO: verify the intended OpenAI model name; the paper does not specify one. --> |
+| `configs/model.yaml` | `model.temperature` | `1.0` | Sampling temperature passed at request build time. |
+| `configs/model.yaml` | `model.max_output_tokens` | `4000` | Per-request output token cap. |
 
-### `configs/experiment.yaml`
-
-Current contents:
-
-```yaml
-run_name: "pilot_5x5_v1"
-
-paths:
-  accepted_dir: "data/accepted"
-  rejected_dir: "data/rejected"
-  summaries_dir: "data/summaries"
-  logs_dir: "logs"
-
-generation:
-  accepted_per_cell: 10
-  max_retries_per_dataset: 7
-  max_total_attempts_per_cell: 84
-  dataset_seed_start: 11
-
-execution:
-  timeout_seconds: 300
-
-cell_selection:
-  mode: "all"
-```
-
-Meaning of the main fields:
-
-- `run_name`: prefix used when creating `run_id`
-- `accepted_per_cell`: how many accepted datasets to collect per selected cell
-- `max_retries_per_dataset`: maximum attempts for one target dataset slot before moving on
-- `max_total_attempts_per_cell`: total attempt budget for an entire cell
-- `dataset_seed_start`: base seed used to derive per-cell, per-target execution seeds
-- `timeout_seconds`: wall-clock timeout for one generated-code execution
-- `cell_selection.mode`: which cells to run
-
-Supported `cell_selection` modes from `src/core/cell_selection.py`:
-
-- `all`
-- `include_ids`
-- `row_col_ranges`
-
-Example restricted run:
-
-```yaml
-cell_selection:
-  mode: "include_ids"
-  cell_ids:
-    - "cell_00_00"
-    - "cell_00_01"
-```
-
-Or:
-
-```yaml
-cell_selection:
-  mode: "row_col_ranges"
-  row_indices: [0, 1]
-  col_indices: [0, 1, 2]
-```
-
-### `configs/grid.yaml`
-
-```yaml
-x:
-  min: 0.0
-  max: 1.0
-
-y:
-  min: 0.0
-  max: 1.0
-
-bins_per_axis: 5
-```
-
-This defines a rectangular `5 x 5` grid over the score space `[0, 1] x [0, 1]`.
-
-### `configs/model.yaml`
-
-```yaml
-model:
-  name: "gpt-5.4"
-  temperature: 1.0
-  max_output_tokens: 4000
-```
-
-In the current code:
-
-- `name` is used when calling the OpenAI API
-- `max_output_tokens` is used
-- `temperature` exists in the config dataclass but is not currently passed into `client.responses.create(...)`
-
-## Input Contract for Generated Code
-
-The LLM is asked to return code that defines:
-
-```python
-generate(seed: int) -> tuple[np.ndarray, np.ndarray]
-```
-
-The generated function must:
-
-- be deterministic given the seed
-- return `(X, y)`
-- return a 2D numeric `X`
-- return a 1D numeric `y`
-- avoid file I/O and external dependencies
-
-Inside the execution sandbox, generated code has access to:
-
-- `np` for NumPy
-- `evaluate(X, y)` to score candidate datasets against the fixed harness
-
-The sandbox allows only restricted imports, effectively limited to NumPy-related modules used by the runtime.
-
-## Evaluation Protocol
-
-The evaluation logic lives in `src/evaluation/`.
-
-### Models
-
-From `src/evaluation/harness.py`:
-
-- `x_score`: `MinMaxScaler` + `KNeighborsRegressor`
-- `y_score`: `MinMaxScaler` + `LinearRegression`
-
-### Cross-validation
-
-The evaluator uses a custom regression splitter in `src/evaluation/tscv.py`.
-
-Current settings in `make_splits(...)`:
-
-- `k = 5` folds
-- `repeats = 1`
-- `seed = 11`
-
-The splitter sorts examples by `y` and distributes them across folds to create a stratified-like K-fold procedure for regression targets.
-
-### Acceptance Rule
-
-Acceptance is implemented in `src/evaluation/metrics.py`.
-
-- For non-terminal bins, a score must satisfy `[lower, upper)`
-- For the last bin on an axis, the upper bound is inclusive: `[lower, upper]`
-
-An attempt is accepted only if both:
-
-- `x_score` falls within the target cell's x-range
-- `y_score` falls within the target cell's y-range
-
-## How the Pipeline Works
-
-`python -m src.main` performs the following steps:
-
-1. Load experiment, grid, and model configs.
-2. Build the full grid with `src/core/grid.py`.
-3. Select the subset of cells requested by `cell_selection`.
-4. Create output directories if needed.
-5. For each cell:
-   - request an initial generation
-   - execute the returned code
-   - validate `X` and `y`
-   - evaluate the dataset
-   - save accepted or rejected artifacts
-   - log the attempt
-   - retry with a repair prompt if necessary
-6. Save `logs/run_summary.json`.
-7. Re-read `logs/attempts.jsonl` and save `logs/attempt_analysis.json`.
-
-The repair loop preserves `previous_response_id` and passes it back to the OpenAI Responses API, so retries are threaded as continuations of the earlier response.
-
-## How to Run the Project
-
-There is currently one primary entry point.
-
-```bash
-python -m src.main
-```
-
-There are no CLI flags in the present implementation. To change run behavior, edit the YAML config files in `configs/`.
-
-## Recommended First Run
-
-Because the default config targets all 25 cells and 10 accepted datasets per cell, a full run can be large and expensive. A smaller pilot is easier for first-time validation.
-
-Example:
-
-```yaml
-generation:
-  accepted_per_cell: 1
-  max_retries_per_dataset: 2
-  max_total_attempts_per_cell: 4
-  dataset_seed_start: 11
-
-cell_selection:
-  mode: "include_ids"
-  cell_ids:
-    - "cell_00_00"
-    - "cell_00_01"
-```
-
-Then run:
-
-```bash
-python -m src.main
-```
-
-## Accepted Datasets
-
-Accepted artifacts are stored under:
-
-```text
-data/accepted/<cell_id>/<dataset_id>/
-```
-
-Typical contents:
-
-- `<dataset_id>.csv`: the generated dataset, with columns `x1`, `x2`, ..., `xd`, `y`
-- `<dataset_id>.json`: metadata including scores, dimensions, response ID, token usage, and runtimes
-- `<attempt_id>.py`: the generator code associated with the accepted attempt
-
-Example checked-in path:
-
-```text
-data/accepted/cell_00_00/cell_00_00__ds_001/
-```
-
-## Rejected Attempts
-
-Rejected artifacts are stored under:
-
-```text
-data/rejected/<cell_id>/<attempt_id>/
-```
-
-Typical contents:
-
-- `<attempt_id>.csv` if execution succeeded but the dataset missed the target cell
-- `<attempt_id>.json` with metadata
-- `<attempt_id>.py` with the attempted generator code
-
-If generated code fails before producing a valid dataset, the attempt is still logged in `attempts.jsonl`, but code/data artifacts may be absent because `AttemptRunner` only writes them after successful execution and evaluation.
-
-## Logs
-
-The main log files are:
-
-- `logs/attempts.jsonl`: append-only attempt log with one record per generation attempt
-- `logs/run_summary.json`: overall totals and per-cell summaries for the run
-- `logs/attempt_analysis.json`: aggregate statistics computed from `attempts.jsonl`
-
-Attempt records include:
-
-- `run_id`
-- `cell_id`
-- `target_dataset_index`
-- `attempt_index`
-- `execution_seed`
-- acceptance status
-- `x_score`, `y_score`
-- execution error type/message, if any
-- paths to saved code and CSV artifacts
-- LLM, execution, and evaluation runtimes
-- input/output/total token counts
-
-## Analysis and Summaries
-
-`src/analysis/summarise_attempts.py` computes:
-
-- total attempts
-- total accepted
-- overall hit rate
-- mean attempts per accepted dataset
-- mean runtimes
-- token totals and per-attempt token means
-- per-cell summaries
-
-The current entry point writes the output to:
-
-```text
-logs/attempt_analysis.json
-```
-
-Although `data/summaries/` is created by the path manager configuration, it is not used by the current `src.main` workflow.
-
-## Reproducibility Notes
-
-Several parts of the experiment are deterministic, but the full pipeline is not fully reproducible in the strict sense.
-
-What is deterministic in the current code:
-
-- Grid construction
-- Cell selection
-- The evaluation splitter seed (`11`)
-- Per-attempt execution seeds derived from `dataset_seed_start`
-- Execution timeout and acceptance rules
-
-Important caveats:
-
-- The LLM call itself is not guaranteed to be reproducible across time, even with the same prompts.
-- The configured `temperature` is not currently passed into the OpenAI API call.
-- Execution seeds are derived deterministically from the target cell and target dataset slot.
-- Retries for the same target dataset slot intentionally reuse the same execution seed so repair attempts isolate prompt/code changes rather than seed variation.
-- Results may change with OpenAI model updates, SDK changes, scikit-learn changes, or prompt edits.
-- `run_id` is timestamp-based, so output paths differ from run to run.
-
-## Current Repository State
-
-The repository already contains example outputs from prior runs:
-
-- `logs/run_summary.json`
-- `logs/attempt_analysis.json`
-- several accepted/rejected artifacts under `data/`
-
-Those checked-in artifacts are useful as examples, but they do not necessarily match the current config exactly. For example, the committed `logs/run_summary.json` describes a run with 3 selected cells and 3 accepted datasets total, while `configs/experiment.yaml` currently requests all cells and `10` accepted datasets per cell.
-
-## Common Pitfalls and Troubleshooting
-
-- `OPENAI_API_KEY is not set in the environment`
-  - Export the variable before running. The repository's `.env` file is not auto-loaded.
-- `FileNotFoundError` for config or prompt files
-  - Run from the repository root so relative paths like `configs/experiment.yaml` and `prompts/system_prompt.txt` resolve correctly.
-- Run appears much slower or more expensive than expected
-  - Reduce `accepted_per_cell`, `max_retries_per_dataset`, and the number of selected cells for pilot runs.
-- Generated code times out
-  - The timeout is controlled by `execution.timeout_seconds` in `configs/experiment.yaml`.
-- No accepted datasets for a target cell
-  - That can happen if the target region is hard to hit or the attempt budget is too small.
-- Validation errors from generated code
-  - The generator must return numeric `X` and `y` with shapes `(n_rows, n_features)` and `(n_rows,)`.
-
-## Limitations
-
-The current repository is functional but still clearly experimental.
-
-- Only one main entry point is provided.
-- There is no command-line interface; configuration is file-based.
-- Only OpenAI-backed generation is implemented.
-- The current evaluation harness is fixed to KNN vs. linear regression.
-- Prompt templates and response parsing are slightly out of sync:
-  - the prompts ask for tagged sections like `<mechanism_brief>...</mechanism_brief>`
-  - the OpenAI client requests strict JSON-schema output
-  - the parser expects JSON text
-- `PathManager` defines paths for `accepted.jsonl` and `failures.jsonl`, but the current orchestration code does not write those logs.
-- `data/summaries/` and `notebooks/` are present but not actively used by the current entry point.
-- The execution sandbox is restricted, but it is still executing model-generated Python and should be treated cautiously.
-
-## Suggested Next Steps
-
-If you plan to continue this line of work, the most obvious improvements suggested by the current codebase are:
-
-- Add a proper CLI for overriding config values without editing YAML manually
-- Resolve the prompt-format mismatch so prompts, schema, and parser all describe the same contract
-- Log accepted-only and failure-only streams if `accepted.jsonl` / `failures.jsonl` are desired
-- Add plotting or notebook utilities for visualizing coverage across the grid
-- Add tests around config loading, acceptance boundaries, and generated-code validation
-- Record more provenance about model versioning and prompt revisions for reproducibility
-
-## Minimal End-to-End Example
-
-1. Edit `configs/experiment.yaml` for a small pilot run.
-2. Export `OPENAI_API_KEY`.
-3. Run:
-
-```bash
-python -m src.main
-```
-
-4. Inspect:
-
-```text
-logs/attempts.jsonl
-logs/run_summary.json
-logs/attempt_analysis.json
-data/accepted/
-data/rejected/
-```
-
-That is the actual end-to-end workflow implemented in this repository today.
