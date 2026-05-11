@@ -18,6 +18,8 @@ target cell of the 2-D performance space
 a repair prompt is sent on the same conversational thread until the
 per-cell attempt budget is exhausted.
 
+![The propose–execute–evaluate–repair loop.](docs/figure1.png)
+
 ## Pipeline position
 
 This repo is **stage 1 of 3**. Its accepted datasets are consumed by
